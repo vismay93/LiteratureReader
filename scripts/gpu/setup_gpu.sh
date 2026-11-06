@@ -49,7 +49,12 @@ if [ -z "$BIN" ]; then
   mkdir -p third_party
   [ -d third_party/llama.cpp ] || git clone --depth 1 https://github.com/ggml-org/llama.cpp third_party/llama.cpp
   ARCH_FLAG=(); [ -n "${CUDA_ARCH:-}" ] && ARCH_FLAG=(-DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH")
-  cmake -S third_party/llama.cpp -B third_party/llama.cpp/build -DGGML_CUDA=ON -DLLAMA_CURL=OFF \
+  # Fast build: only llama-server, only this GPU's architecture (CUDA_ARCH), no tests/examples,
+  # static libs (one self-contained binary, easy to cache), Ninja when available.
+  GEN=(); have ninja && GEN=(-G Ninja)
+  cmake -S third_party/llama.cpp -B third_party/llama.cpp/build "${GEN[@]}" \
+    -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF \
+    -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
     -DCMAKE_BUILD_TYPE=Release "${ARCH_FLAG[@]}"
   cmake --build third_party/llama.cpp/build --target llama-server -j "$(nproc)"
   BIN=$ROOT/third_party/llama.cpp/build/bin/llama-server

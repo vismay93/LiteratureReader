@@ -26,6 +26,25 @@ if [ -z "${CUDA_ARCH:-}" ]; then
 fi
 ok "GPU compute capability: sm_$CUDA_ARCH"
 
+# ------------------------------------------------------------------ llama-server (cached build)
+# Building llama.cpp with CUDA takes ~10 min, so the binary is cached in PR_CACHE_DIR
+# (the notebook points this at Google Drive). The cache key is GPU arch + CUDA version;
+# a cached binary that no longer sees the GPU is discarded and rebuilt.
+bold "llama-server"
+BUILT="$ROOT/third_party/llama.cpp/build/bin/llama-server"
+CUDA_VER=$( (nvcc --version 2>/dev/null || true) | grep -o 'release [0-9.]*' | tr -dc '0-9.')
+CACHED="${PR_CACHE_DIR:+$PR_CACHE_DIR/llama-server-sm${CUDA_ARCH}-cuda${CUDA_VER:-unknown}}"
+cuda_ok() { "$1" --list-devices 2>&1 | grep -qi cuda; }
+if [ -z "${LLAMA_SERVER:-}" ] && [ ! -x "$BUILT" ] && [ -n "$CACHED" ] && [ -x "$CACHED" ]; then
+  if cuda_ok "$CACHED"; then
+    mkdir -p "$(dirname "$BUILT")" && cp "$CACHED" "$BUILT"
+    ok "restored cached build from $CACHED (skipping compile)"
+  else
+    rm -f "$CACHED"; echo "  cached build doesn't see the GPU; rebuilding"
+  fi
+fi
+have ninja || { pip install -q ninja >/dev/null 2>&1 || true; }
+
 # ------------------------------------------------------------------ Node 20+ (for the web UI build)
 bold "Node.js"
 NODE_DIR="$ROOT/third_party/node"
@@ -44,5 +63,9 @@ bold "Building the web UI"
 ok "web/dist built"
 
 # ------------------------------------------------------------------ GPU setup (llama.cpp CUDA build, Python env, models)
-bold "GPU setup (first run builds llama.cpp with CUDA: ~10 min)"
+bold "GPU setup (builds llama.cpp with CUDA unless restored from cache)"
 ./scripts/gpu/setup_gpu.sh -y
+
+if [ -n "$CACHED" ] && [ -x "$BUILT" ] && [ ! -x "$CACHED" ]; then
+  mkdir -p "$PR_CACHE_DIR" && cp "$BUILT" "$CACHED" && ok "cached llama-server to $CACHED"
+fi

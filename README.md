@@ -60,7 +60,7 @@ No Mac, or want a faster GPU? Run the whole app in a Colab notebook: [`colab/pap
 1. Click the **Open in Colab** badge at the top of this page (or in Colab: *File → Open notebook → GitHub* and paste this repo's URL).
 2. *Runtime → Change runtime type → T4 GPU* (or better).
 3. Cell 1 already points `REPO_URL`/`BRANCH` at this repo; change them if you run a fork. Leave `USE_DRIVE` on to keep processed papers in Google Drive between sessions.
-4. Run cells 1–4. The first install takes about 15 minutes: it builds llama.cpp with CUDA for your GPU and downloads the models. Re-runs in a fresh runtime repeat the build and download; only your papers persist on Drive.
+4. Run cells 1–4. The first install takes about 15 minutes: it builds llama.cpp with CUDA (only `llama-server`, only for your GPU's architecture) and downloads the models. With `USE_DRIVE` on, the built `llama-server` is cached in `<DRIVE_DIR>/cache/`, keyed by GPU architecture and CUDA version, so a fresh runtime skips the compile and only re-downloads the models (a few minutes). Delete that folder to force a rebuild.
 5. Cell 4 prints an **Open Paper Reader** link. It goes through Colab's port proxy, which only works in your browser while you are signed in to that Colab session.
 
 The notebook also has cells to batch-process papers headlessly and download the bundles, which you can import on your Mac (`cd backend && uv run python batch.py import ~/Downloads/*.tar.gz`).
