@@ -1,0 +1,11 @@
+data/
+models/
+backend/.venv/
+web/node_modules/
+web/dist/
+__pycache__/
+*.log
+exports/
+third_party/
+.gpu.env
+.DS_Store
