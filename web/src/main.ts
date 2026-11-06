@@ -94,7 +94,9 @@ async function showPaper(id: string) {
       <pre class="err" id="err"></pre>
     </div>`;
   const STAGES = ["render", "layout", "narrate"];
-  const es = api.events(id, (s) => {
+  let finished = false;
+  const onStatus = (s: Status) => {
+    if (finished) return;
     const msg = app.querySelector<HTMLElement>("#msg");
     if (!msg) return;
     msg.textContent = s.message ?? s.state;
@@ -103,10 +105,14 @@ async function showPaper(id: string) {
     app.querySelector<HTMLElement>("#fill")!.style.width = `${((si + frac) / STAGES.length) * 100}%`;
     app.querySelector<HTMLElement>("#stage")!.textContent =
       s.stage && STAGES.includes(s.stage) ? `Step ${si + 1} of ${STAGES.length}` : "";
-    if (s.state === "done") { es.close(); void showReader(id); }
-    if (s.state === "error") { es.close(); app.querySelector<HTMLElement>("#err")!.textContent = s.message ?? "Failed"; }
-  });
-  cleanup = () => es.close();
+    if (s.state === "done") { stop(); void showReader(id); }
+    if (s.state === "error") { stop(); app.querySelector<HTMLElement>("#err")!.textContent = s.message ?? "Failed"; }
+  };
+  const es = api.events(id, onStatus);
+  // Polling fallback for proxies that buffer server-sent events (e.g. Google Colab's port proxy).
+  const poll = window.setInterval(() => { void api.status(id).then(onStatus).catch(() => {}); }, 3000);
+  const stop = () => { finished = true; es.close(); window.clearInterval(poll); };
+  cleanup = stop;
 }
 
 // ---------------------------------------------------------------- Reader

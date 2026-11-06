@@ -8,6 +8,10 @@ MODELS_DIR = Path(os.environ.get("PR_MODELS_DIR", ROOT / "models"))
 
 HOST = os.environ.get("PR_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PR_PORT", "8000"))
+# Host headers the backend accepts (comma-separated). Loopback only by default, which blocks
+# DNS rebinding. The Colab launcher sets "*" because Colab's port proxy forwards its own Host;
+# the server still listens on 127.0.0.1 only.
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("PR_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if h.strip()]
 
 # llama-server endpoints (OpenAI-compatible)
 LAYOUT_URL = os.environ.get("PR_LAYOUT_URL", "http://127.0.0.1:8081")
