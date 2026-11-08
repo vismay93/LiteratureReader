@@ -24,6 +24,10 @@ VLM_MODEL_NAME = os.environ.get("PR_VLM_MODEL_NAME") or None
 # Max new tokens for one page of DocTags. granite-docling's context is 8192 (prompt included), so
 # servers that enforce it (vLLM) need this lowered to ~6500.
 LAYOUT_MAX_TOKENS = int(os.environ.get("PR_LAYOUT_MAX_TOKENS", "8192"))
+# Plain paragraphs/list items/footnotes: "0" (default) cleans them with rules (citations, URLs,
+# hyphenation) and spends no LLM tokens; "1" has the VLM rewrite them for listening (math in
+# words, abbreviations expanded). Figures, tables, equations and code always use the VLM.
+REWRITE_TEXT = os.environ.get("PR_REWRITE_TEXT", "0") == "1"
 # Downscale images above this many pixels before sending (0 = never). Bounds vision tokens.
 MAX_IMAGE_PIXELS = int(os.environ.get("PR_MAX_IMAGE_PIXELS", "0"))
 # Qwen3.x "thinking" models reason before answering; narration doesn't need it. Sends

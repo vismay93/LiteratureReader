@@ -7,7 +7,7 @@ Listen to research papers in your browser while the paragraph, figure, chart, ta
 | Step | Model (Hugging Face) | Runtime |
 |---|---|---|
 | Layout, OCR, reading order | [`ggml-org/granite-docling-258M-GGUF`](https://huggingface.co/ggml-org/granite-docling-258M-GGUF) | llama.cpp, port 8081 |
-| Narration + figure/table/equation explanations | [`Qwen/Qwen3-VL-8B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF) (Q4_K_M) | llama.cpp, port 8082 |
+| Figure/table/equation explanations (and optional text rewrite) | [`Qwen/Qwen3-VL-8B-Instruct-GGUF`](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF) (Q4_K_M) | llama.cpp, port 8082 |
 | Speech | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (ONNX) | `kokoro-onnx`, in the backend |
 
 ## Requirements
@@ -238,10 +238,11 @@ Set these environment variables before `./scripts/start.sh` (see `backend/config
 | `PR_LAYOUT_MAX_TOKENS` | `8192` | Layout output budget per page (docling on vLLM: 6800; dots.ocr: 16000) |
 | `PR_LAYOUT_LONG_SIDE` | `1024` | Page render size for layout (dots.ocr: 1600) |
 | `PR_VLM_DISABLE_THINKING` | `1` | Turn off reasoning for Qwen3.x thinking models |
+| `PR_REWRITE_TEXT` | `0` | `0`: plain paragraphs are read as written, with citations, URLs and line-break hyphens removed by rules (no LLM tokens). `1`: the VLM rewrites each paragraph for listening (math in words, abbreviations expanded); several times the tokens. Figures, tables, equations and code always use the VLM |
 | `PR_DOTS_IMAGE_PLACEHOLDER` | `1` | Prepend dots' image tokens to the prompt (vLLM recipe); `0` for SGLang |
 | `PR_MAX_IMAGE_PIXELS` | `0` (off) | Downscale figure/table crops above this size before sending |
 
-To tune narration style, edit `backend/pipeline/prompts.py`, then use *Regenerate this block*. To reprocess a whole paper, delete `data/papers/<id>/narration` and `data/papers/<id>/audio` and upload the paper again.
+To tune narration style, edit `backend/pipeline/prompts.py` (visuals, and text when `PR_REWRITE_TEXT=1`) or `clean_text` in `backend/pipeline/narrate.py` (text by default), then use *Regenerate this block*. Changing `PR_REWRITE_TEXT` re-narrates only the affected text blocks the next time a paper is processed. To reprocess a whole paper, delete `data/papers/<id>/narration` and `data/papers/<id>/audio` and upload the paper again.
 
 ## How it works
 
@@ -250,7 +251,8 @@ PDF ─▶ render pages ─▶ granite-docling (DocTags: typed boxes in reading 
     ─▶ swap in the PDF text layer (more accurate than OCR on born-digital PDFs)
     ─▶ clean up: drop headers/footers, attach captions, merge authors, detect footnotes, skip References
     ─▶ crop figures/tables/equations at 200 dpi
-    ─▶ Qwen3-VL: light rewrite of text; explanations of visuals from crop + caption + referring paragraph
+    ─▶ text: citations/URLs stripped by rules (or a Qwen3-VL rewrite with PR_REWRITE_TEXT=1)
+    ─▶ Qwen3-VL: explanations of visuals from crop + caption + referring paragraph
     ─▶ Kokoro: one WAV per block, synthesized per sentence for exact sentence timings
     ─▶ doc.json ─▶ browser (pdf.js + highlight overlay + audio queue)
 ```

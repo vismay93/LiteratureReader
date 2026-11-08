@@ -146,11 +146,19 @@ async def process(pid: str, report, sem: asyncio.Semaphore | None = None):
         async def narrate_one(i: int):
             b = blocks[i]
             cache = d / "narration" / f"{b['id']}.json"
-            if cache.exists():
-                res = json.loads(cache.read_text())
-            else:
-                async with sem:
-                    crop = d / b["crop"] if b.get("crop") else None
+            res = json.loads(cache.read_text()) if cache.exists() else None
+            if res is not None and b["type"] in narrate.TEXT_TYPES \
+                    and res.get("src", "llm") != narrate.text_source(b):
+                # PR_REWRITE_TEXT changed since this block was narrated: redo it and its audio.
+                res = None
+                for f in (d / "audio" / f"{b['id']}.json", d / "audio" / f"{b['id']}.wav"):
+                    f.unlink(missing_ok=True)
+            if res is None:
+                crop = d / b["crop"] if b.get("crop") else None
+                if narrate.uses_llm(b):
+                    async with sem:
+                        res = await narrate.narrate_block(client, blocks, i, crop)
+                else:   # headings and rule-cleaned text: no model call, don't queue for a slot
                     res = await narrate.narrate_block(client, blocks, i, crop)
                 cache.write_text(json.dumps(res))
             b.update(res)
