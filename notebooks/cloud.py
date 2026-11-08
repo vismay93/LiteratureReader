@@ -842,13 +842,24 @@ def show(port: int | None = None, url: str | None = None):
     except ImportError:
         in_nb = False
     port = port or _port
+    if platform() == "colab":
+        # Print the proxy URL as plain text: Colab's JavaScript link widget
+        # (serve_kernel_port_as_window) doesn't render in every browser/setup.
+        if url is None:
+            try:
+                url, _ = _proxy(port)
+            except Exception as e:  # eval_js needs the Colab frontend (e.g. fails from a thread)
+                print(f"Could not get the Colab proxy URL ({e}). Re-run cloud.show() in its own cell.")
+                return
+        print(f"Paper Reader: {url}")
+        print("Open it in a new tab of the browser you're using for Colab (the link is tied to your\n"
+              "Google login and this runtime; it stops working when the runtime ends).")
+        if in_nb:
+            display(HTML(f'<p><a href="{html.escape(url)}" target="_blank" rel="noopener">'
+                         f'▶ Open Paper Reader</a></p>'))
+        return
     if url is None:
         url, _ = _proxy(port)
-    if platform() == "colab":
-        from google.colab import output  # type: ignore
-        print("Open the reader in a new tab (recommended - audio + keyboard shortcuts work best):")
-        output.serve_kernel_port_as_window(port, path="/")
-        return
     if url and not in_nb:
         print(f"Paper Reader: {url}")
     elif url:

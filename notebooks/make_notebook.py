@@ -7,7 +7,7 @@ def code(s): cells.append({"cell_type": "code", "metadata": {}, "execution_count
 md("""
 # 📄🔊 Paper Reader — Colab / SageMaker
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/vismay93/LiteratureReader/blob/master/notebooks/paper_reader_cloud.ipynb)
+> **On Google Colab?** Use the Colab notebook instead: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/vismay93/LiteratureReader/blob/master/notebooks/paper_reader_colab.ipynb)
 
 Runs the full Paper Reader UI on a cloud GPU. You upload or fetch a paper, and it is read aloud while the
 paragraph, figure, table or equation being read is highlighted.
