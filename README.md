@@ -132,21 +132,22 @@ On the Mac you can also queue a batch overnight: `./scripts/start_llama.sh && cd
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/vismay93/LiteratureReader/blob/master/notebooks/paper_reader_colab.ipynb)
 
-[`notebooks/paper_reader_colab.ipynb`](notebooks/paper_reader_colab.ipynb) is a Colab-only notebook made of plain code cells: no forms, no widgets, no JavaScript outputs. Everything it does, including the reader link, is printed as text, so it shows up in every browser.
+[`notebooks/paper_reader_colab.ipynb`](notebooks/paper_reader_colab.ipynb) is a Colab-only notebook tuned for a **T4 GPU**. Every cell is a Colab form: the code is hidden and settings are form fields (checkboxes, dropdowns, sliders). Double-click a cell to see its code.
 
-1. Click the badge, then *Runtime → Change runtime type → T4 GPU* (or L4 / A100).
-2. Run the cells top to bottom with Shift+Enter:
+1. Click the badge, then *Runtime → Change runtime type → T4 GPU*.
+2. Fill in the forms and press ▶ on each cell, top to bottom:
 
-| Step | What it does |
+| Cell | What it does |
 |---|---|
-| 0. Check the GPU | Stops with a clear message if the runtime has no GPU |
-| 1. Settings | `REPO_URL`/`BRANCH` (this repo by default), `USE_DRIVE` to keep papers in Google Drive, `ENGINE` (`vllm`, `transformers`, `llama.cpp`), `VOICE` |
-| 2. Get the code | Clones the repo into `/content/paper-reader` (or pulls if it's already there) and mounts Drive if enabled |
-| 3. Install | `cloud.setup(...)`, the same installer as the SageMaker notebook. About 5–10 min the first time |
-| 4. Start | `cloud.start(...)` starts the servers and prints a **Paper Reader: https://…** link. Open it in a new tab of the same browser |
-| 5–6. Optional | Batch-process a reading list; download processed papers as one `.tar` to import on your Mac |
+| 1. Settings | **USE_DRIVE** keeps papers in Google Drive (**CACHE_MODELS_ON_DRIVE** keeps the models too). **ENGINE**: `vllm` (default), `transformers` or `llama.cpp`. **NARRATION_MODEL**: Qwen3-VL 4B, or 2B if memory is tight. **MAX_BATCH**, **VOICE**, and **REPO_URL**/**BRANCH** for forks. Also checks for a GPU |
+| 2. Get the code | Clones the repo into `/content/paper-reader` (or updates it) and mounts Drive if enabled |
+| 3. Install | `cloud.setup(...)` with the T4 sizing: granite-docling for layout, the chosen Qwen3-VL in fp16. About 5–10 min the first time |
+| 4. Start | Starts the servers and prints a **Paper Reader: https://…** link. Open it in a new tab of the same browser |
+| Show the link again | Reprints the link, or tick **EMBED_IN_NOTEBOOK** to show the reader inside the notebook |
+| 5–6. Optional | Batch-process papers (IDs in a text field); download processed papers as one `.tar` to import on your Mac |
+| Troubleshooting / Stop | Server status and a log picker; stop everything to free the GPU |
 
-If the link doesn't appear or stops working, run `cloud.show(PORT)` to print it again; there's also a cell that embeds the UI in the notebook. The link goes through Colab's port proxy, so it works only for your Google account while the runtime is running.
+The link goes through Colab's port proxy, so it works only for your Google account while the runtime is running. The notebook sets `PR_PLATFORM=colab`, so `cloud.py` skips platform detection.
 
 The notebook is generated: edit `notebooks/make_colab_notebook.py`, then run `python notebooks/make_colab_notebook.py notebooks/paper_reader_colab.ipynb`. For a fork, change `REPO` there and the user/repo in the badge URL above.
 

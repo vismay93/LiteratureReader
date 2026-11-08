@@ -56,6 +56,9 @@ _port = 8000
 # ------------------------------------------------------------------ helpers
 
 def platform() -> str:
+    """'colab' | 'sagemaker' | 'jupyter'. PR_PLATFORM forces one (the Colab notebook sets 'colab')."""
+    if os.environ.get("PR_PLATFORM"):
+        return os.environ["PR_PLATFORM"]
     if "google.colab" in sys.modules or os.environ.get("COLAB_RELEASE_TAG"):
         return "colab"
     if Path("/opt/ml/metadata/resource-metadata.json").exists() or os.environ.get("SAGEMAKER_INTERNAL_IMAGE_URI"):
