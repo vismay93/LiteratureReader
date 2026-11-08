@@ -211,6 +211,11 @@ def setup(engine: str = "vllm", layout: str = "auto", vlm_model: str | None = No
         hf_home = "/tmp/paper-reader-hf"
     if models_dir:
         _link_models(Path(models_dir))
+    hf_mirror = None
+    if _on_drive(hf_home) and engine != "llama.cpp":
+        hf_mirror, hf_home = hf_home, LOCAL_HF_HOME
+        print(f"Model cache: {hf_home} (local disk), mirrored to {hf_mirror}")
+        _restore_mirror(hf_mirror, hf_home)
     name, vram, cc = _gpu()
     free = shutil.disk_usage((ROOT / "models").resolve() if (ROOT / "models").exists() else ROOT).free / 1e9
     print(f"Platform: {plat} | GPU: {name} ({vram} MB, sm {cc}) | free disk: {free:.0f} GB | engine: {engine}")
@@ -240,6 +245,8 @@ def setup(engine: str = "vllm", layout: str = "auto", vlm_model: str | None = No
     else:
         st = _setup_transformers(vram, vlm_model, quant, max_batch, hf_home)
 
+    if hf_mirror:
+        _save_mirror(hf_mirror, hf_home)
     _sh(["bash", "scripts/build_web.sh"])
     STATE.write_text(json.dumps(st, indent=1))
     print(f"\nSetup finished in {time.time() - t0:.0f}s ({json.dumps(st)}). Next: cloud.start()")
@@ -504,17 +511,93 @@ def _setup_backend(vram: int, torch_in_kernel: bool):
             urllib.request.urlretrieve(f"{KOKORO_URL}/{f}", kdir / f)
 
 
+# Downloads repos, then checks every .safetensors header and re-downloads any corrupt file
+# (a truncated download or a bad copy shows up in vLLM as "SafetensorError: header too large").
+_PREFETCH_PY = r"""
+import json, os, struct, sys
+from pathlib import Path
+from huggingface_hub import snapshot_download, hf_hub_download
+PATTERNS = ['*.json', '*.jinja', '*.safetensors', '*.txt', '*.model', '*.tiktoken', '*.py']
+
+def bad(f):
+    try:
+        size = f.stat().st_size
+        with open(f, 'rb') as fh:
+            n = struct.unpack('<Q', fh.read(8))[0]
+            if not 2 <= n <= min(size - 8, 100_000_000):
+                return f'header length {n} vs file size {size}'
+            json.loads(fh.read(n))
+    except Exception as e:
+        return str(e) or type(e).__name__
+    return None
+
+for spec in sys.argv[1:]:
+    repo, _, rev = spec.partition('@')
+    path = Path(snapshot_download(repo, revision=rev or None, allow_patterns=PATTERNS))
+    print(repo, '->', path)
+    for f in sorted(path.rglob('*.safetensors')):
+        why = bad(f)
+        if not why:
+            continue
+        rel = str(f.relative_to(path))
+        print(f'  corrupt {rel} ({why}); re-downloading')
+        real = f.resolve()
+        f.unlink(missing_ok=True)
+        if real != f:
+            real.unlink(missing_ok=True)
+        hf_hub_download(repo, rel, revision=rev or None, force_download=True)
+        why = bad(path / rel)
+        if why:
+            sys.exit(f'{repo}/{rel} is still corrupt after re-downloading ({why}). '
+                     'Delete the Hugging Face cache and run setup again.')
+        print(f'  ok {rel}')
+"""
+
+
 def _prefetch(repos: list[str], hf_home: str | None, revisions: dict | None = None):
-    print("\n==> Prefetching Hugging Face models")
+    print("\n==> Prefetching Hugging Face models (and checking their weights)")
     env = {"HF_HOME": hf_home} if hf_home else {}
     specs = [f"{r}@{(revisions or {}).get(r, '')}" for r in repos]
-    _sh([sys.executable, "-c",
-         "import sys; from huggingface_hub import snapshot_download\n"
-         "for spec in sys.argv[1:]:\n"
-         "    r, _, rev = spec.partition('@')\n"
-         "    print(r, '->', snapshot_download(r, revision=rev or None, allow_patterns=["
-         "'*.json','*.jinja','*.safetensors','*.txt','*.model','*.tiktoken','*.py']))",
-         *specs], env=env)
+    _sh([sys.executable, "-c", _PREFETCH_PY, *specs], env=env)
+
+
+# Models are never served from Google Drive: safetensors are memory-mapped, and Drive's FUSE
+# mount can return partial data for large files. A Drive hf_home becomes a mirror holding one
+# tar of the cache, unpacked to local disk at setup and refreshed when new models are downloaded.
+LOCAL_HF_HOME = "/content/hf-cache"
+_MIRROR_TAR = "hf-cache.tar"
+
+
+def _on_drive(p: str | None) -> bool:
+    return bool(p) and str(Path(p).resolve()).startswith("/content/drive/")
+
+
+def _cache_bytes(d: Path) -> int:
+    return sum(f.stat().st_size for f in d.rglob("*") if f.is_file() and not f.is_symlink()) if d.exists() else 0
+
+
+def _restore_mirror(mirror: str, local: str):
+    tar, loc = Path(mirror) / _MIRROR_TAR, Path(local)
+    loc.mkdir(parents=True, exist_ok=True)
+    if tar.exists() and not (loc / "hub").exists():
+        print(f"\n==> Restoring model cache from Drive ({tar.stat().st_size / 1e9:.1f} GB) to {loc}")
+        _sh(["tar", "-xf", str(tar), "-C", str(loc)])
+
+
+def _save_mirror(mirror: str, local: str):
+    tar, meta, loc = Path(mirror) / _MIRROR_TAR, Path(mirror) / "hf-cache.json", Path(local)
+    size = _cache_bytes(loc / "hub")
+    if not size:
+        return
+    saved = json.loads(meta.read_text()).get("bytes", 0) if meta.exists() and tar.exists() else 0
+    if size == saved:
+        return
+    Path(mirror).mkdir(parents=True, exist_ok=True)
+    print(f"\n==> Saving model cache to Drive ({size / 1e9:.1f} GB) -> {tar}")
+    tmp = tar.with_suffix(".tar.partial")
+    _sh(["tar", "-cf", str(tmp), "-C", str(loc), "hub"])
+    tmp.replace(tar)
+    meta.write_text(json.dumps({"bytes": size}))
 
 
 def _backend_tests():
