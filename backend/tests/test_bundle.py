@@ -50,8 +50,9 @@ def test_roundtrip(lib, monkeypatch, audio):
     monkeypatch.setattr(config, "DATA_DIR", lib / "other")
     assert bundle.import_bundle(out) == (PID, "imported")
     doc = json.loads((lib / "other" / PID / "doc.json").read_text())
-    assert doc["blocks"][0]["audio"] == f"audio/p0b0.{audio}"
+    assert doc["blocks"][0]["audio"] == "audio/p0b0.mp3"  # stored as config.AUDIO_FORMAT
     assert (lib / "other" / PID / doc["blocks"][0]["audio"]).exists()
+    assert not (lib / "other" / PID / "audio" / "p0b0.wav").exists()
     assert bundle.import_bundle(out) == (PID, "skipped")
     assert bundle.import_bundle(out, force=True) == (PID, "imported")
 
@@ -97,3 +98,38 @@ def test_rejects_missing_audio(lib, monkeypatch):
     f = _tar(lib / "b.tar.gz", [(f"{PID}/doc.json", doc), (f"{PID}/source.pdf", PDF)])
     with pytest.raises(bundle.BundleError, match="missing"):
         bundle.import_bundle(f)
+
+
+def test_import_keeps_wav_when_configured(lib, monkeypatch):
+    out = bundle.export_paper(PID, lib / "exp", audio="wav")
+    monkeypatch.setattr(config, "DATA_DIR", lib / "other")
+    monkeypatch.setattr(config, "AUDIO_FORMAT", "wav")
+    bundle.import_bundle(out)
+    doc = json.loads((lib / "other" / PID / "doc.json").read_text())
+    assert doc["blocks"][0]["audio"] == "audio/p0b0.wav"
+
+
+def test_compact(lib):
+    d = config.DATA_DIR / PID
+    (d / "pages").mkdir()
+    (d / "pages" / "0.png").write_bytes(b"x" * 1000)
+    sf.write(d / "audio" / "p0b0.wav", np.random.default_rng(0).standard_normal(24000 * 5).astype(np.float32) * 0.1,
+             24000)
+    saved = bundle.compact(d)
+    assert saved > 0
+    doc = json.loads((d / "doc.json").read_text())
+    assert doc["blocks"][0]["audio"] == "audio/p0b0.mp3"
+    assert (d / "audio" / "p0b0.mp3").exists() and not (d / "audio" / "p0b0.wav").exists()
+    assert not (d / "pages").exists()
+    data, sr = sf.read(d / "audio" / "p0b0.mp3")
+    assert sr == 24000 and abs(len(data) / sr - 5) < 0.2  # duration (and so sentence timings) kept
+    assert bundle.compact(d) == 0  # idempotent
+
+
+def test_mp3_export_reuses_mp3(lib):
+    d = config.DATA_DIR / PID
+    bundle.compact(d)
+    mp3 = (d / "audio" / "p0b0.mp3").read_bytes()
+    out = bundle.export_paper(PID, lib / "exp", audio="mp3")
+    with tarfile.open(out) as t:
+        assert t.extractfile(f"{PID}/audio/p0b0.mp3").read() == mp3  # not re-encoded

@@ -3,7 +3,8 @@
 # Safe to re-run (every step is idempotent).
 #
 #   ./scripts/install.sh               # full install
-#   ./scripts/install.sh --skip-models # everything except the ~6.3 GB model download
+#   ./scripts/install.sh --skip-models # reader only: no ~6.3 GB model download and no llama.cpp
+#                                      # (then ./scripts/start.sh --read-only)
 #   ./scripts/install.sh -y            # don't ask before installing missing tools with Homebrew
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -42,7 +43,13 @@ bold "Checking prerequisites"
 OS=$(uname -s)
 [ "$OS" = Darwin ] || warn "Tested on macOS (Apple Silicon). On $OS install llama.cpp, uv and Node 20+ yourself."
 
-brew_install llama-server llama.cpp
+if [ "$SKIP_MODELS" = 0 ]; then
+  brew_install llama-server llama.cpp
+elif have llama-server; then
+  ok "llama-server ($(command -v llama-server))"
+else
+  warn "llama.cpp not installed (only needed to process papers; read-only mode works without it)"
+fi
 brew_install uv uv
 brew_install node node
 brew_install curl curl
@@ -50,7 +57,7 @@ brew_install curl curl
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
 [ "$NODE_MAJOR" -ge 20 ] || die "Node 20+ required (found $(node -v))."
 ok "node $(node -v)"
-llama-server --version 2>&1 | grep -q version && ok "llama.cpp $(llama-server --version 2>&1 | grep -o 'version: [0-9]*')"
+have llama-server && llama-server --version 2>&1 | grep -q version && ok "llama.cpp $(llama-server --version 2>&1 | grep -o 'version: [0-9]*')"
 
 # Disk space check for models (~6.3 GB) when downloading.
 if [ "$SKIP_MODELS" = 0 ]; then
@@ -93,10 +100,12 @@ done
 
 bold "Done"
 if [ "$missing" = 1 ]; then
-  echo "  Models are missing: run ./scripts/download_models.sh"
+  echo "  Models are missing: run ./scripts/download_models.sh to process papers here,"
+  echo "  or read imported papers without them: ./scripts/start.sh --read-only"
 fi
 cat <<'EOF'
   Start:  ./scripts/start.sh        then open http://127.0.0.1:8000
+  Read:   ./scripts/start.sh --read-only   (no models loaded; import papers with batch.py import)
   Dev:    ./scripts/dev.sh          (hot-reload UI at http://127.0.0.1:5173)
   Stop:   Ctrl-C (or ./scripts/stop_llama.sh if the model servers are left running)
 EOF

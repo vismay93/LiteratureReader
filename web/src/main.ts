@@ -1,5 +1,5 @@
 import "./styles.css";
-import { api, type Block, type Doc, type Status } from "./api";
+import { api, type Block, type Doc, type Info, type Status } from "./api";
 import { Viewer } from "./viewer";
 import { Player, type Filters } from "./player";
 
@@ -24,11 +24,18 @@ route();
 
 // ---------------------------------------------------------------- Home
 
+const READ_ONLY_NOTE = `
+  <div class="note"><strong>Read-only mode.</strong> No models are loaded, so new papers can't be
+  processed here. Import papers processed elsewhere with
+  <code>batch.py import</code>, or restart with <code>./scripts/start.sh</code> to process and regenerate.</div>`;
+
 async function showHome() {
+  const { read_only } = await api.info();
   app.innerHTML = `
     <div class="home">
       <h1>Paper Reader</h1>
-      <p class="sub">Drop a paper and listen to it. Everything runs on your machine.</p>
+      <p class="sub">${read_only ? "Listen to your processed papers." : "Drop a paper and listen to it. Everything runs on your machine."}</p>
+      ${read_only ? READ_ONLY_NOTE : `
       <label class="drop" id="drop">
         <input type="file" accept="application/pdf" hidden id="file" />
         <div><strong>Drop a PDF here</strong> or click to choose</div>
@@ -36,7 +43,7 @@ async function showHome() {
       <form class="arxiv" id="arxiv">
         <input name="ref" placeholder="arXiv ID or URL, e.g. 1706.03762" autocomplete="off" />
         <button>Fetch</button>
-      </form>
+      </form>`}
       <div class="err" id="err"></div>
       <h2>Library</h2>
       <ul class="library" id="lib"><li class="muted">Loading…</li></ul>
@@ -46,22 +53,9 @@ async function showHome() {
     err.textContent = "";
     try { location.hash = `#/paper/${(await p).paper_id}`; } catch (e) { err.textContent = String((e as Error).message); }
   };
-  const drop = app.querySelector<HTMLElement>("#drop")!;
-  const file = app.querySelector<HTMLInputElement>("#file")!;
-  file.onchange = () => file.files?.[0] && start(api.upload(file.files[0]));
-  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
-  drop.ondragleave = () => drop.classList.remove("over");
-  drop.ondrop = (e) => {
-    e.preventDefault();
-    drop.classList.remove("over");
-    const f = e.dataTransfer?.files?.[0];
-    if (f) void start(api.upload(f));
-  };
-  app.querySelector<HTMLFormElement>("#arxiv")!.onsubmit = (e) => {
-    e.preventDefault();
-    const ref = new FormData(e.target as HTMLFormElement).get("ref") as string;
-    if (ref.trim()) void start(api.arxiv(ref.trim()));
-  };
+  const drop = app.querySelector<HTMLElement>("#drop");
+  const file = app.querySelector<HTMLInputElement>("#file");
+  if (drop && file) wireUpload(drop, file, start);
 
   const lib = app.querySelector<HTMLElement>("#lib")!;
   try {
@@ -79,11 +73,37 @@ async function showHome() {
   }
 }
 
+function wireUpload(drop: HTMLElement, file: HTMLInputElement, start: (p: Promise<{ paper_id: string }>) => void) {
+  file.onchange = () => file.files?.[0] && start(api.upload(file.files[0]));
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    const f = e.dataTransfer?.files?.[0];
+    if (f) void start(api.upload(f));
+  };
+  app.querySelector<HTMLFormElement>("#arxiv")!.onsubmit = (e) => {
+    e.preventDefault();
+    const ref = new FormData(e.target as HTMLFormElement).get("ref") as string;
+    if (ref.trim()) void start(api.arxiv(ref.trim()));
+  };
+}
+
 // ---------------------------------------------------------------- Processing
 
 async function showPaper(id: string) {
   const st = await api.status(id).catch(() => ({ state: "unknown" }) as Status);
   if (st.state === "done") return showReader(id);
+  if ((await api.info()).read_only) {
+    app.innerHTML = `
+      <div class="home">
+        <a href="#/" class="back">← Library</a>
+        <h1>Not processed yet</h1>
+        ${READ_ONLY_NOTE}
+      </div>`;
+    return;
+  }
   app.innerHTML = `
     <div class="home">
       <a href="#/" class="back">← Library</a>
@@ -112,7 +132,7 @@ async function showPaper(id: string) {
 // ---------------------------------------------------------------- Reader
 
 async function showReader(id: string) {
-  const doc: Doc = await api.doc(id);
+  const [doc, info]: [Doc, Info] = await Promise.all([api.doc(id), api.info()]);
   document.title = doc.title || "Paper Reader";
   app.innerHTML = `
     <div class="reader">
@@ -143,6 +163,11 @@ async function showReader(id: string) {
     </div>`;
   const $ = <T extends HTMLElement>(s: string) => app.querySelector<T>(s)!;
   $(".title").textContent = doc.title;
+  if (info.read_only) {
+    const regen = $<HTMLButtonElement>("#regen");
+    regen.disabled = true;
+    regen.title = "Read-only mode: start with ./scripts/start.sh (models loaded) to regenerate";
+  }
 
   const filters: Filters = {
     visuals: localStorage.getItem("pr.visuals") !== "0",

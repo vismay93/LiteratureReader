@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import config
+from . import audio as audio_io
 from .ingest import paper_dir
 
 BUNDLE_SUFFIX = ".tar.gz"
@@ -63,13 +64,12 @@ def export_paper(pid: str, out_dir: Path, audio: str = "wav", skip_fresh: bool =
         for b in doc["blocks"]:
             if not b.get("audio"):
                 continue
-            wav = d / b["audio"].split("?")[0]
-            if audio == "mp3":
-                data = _wav_to_mp3(wav)
-                b["audio"] = f"audio/{wav.stem}.mp3"
-                _add_bytes(tar, f"{pid}/{b['audio']}", data)
+            src = d / b["audio"].split("?")[0]
+            b["audio"] = f"audio/{src.stem}.{audio}"
+            if src.suffix == f".{audio}":
+                tar.add(src, arcname=f"{pid}/{b['audio']}")
             else:
-                tar.add(wav, arcname=f"{pid}/audio/{wav.name}")
+                _add_bytes(tar, f"{pid}/{b['audio']}", audio_io.convert(src, audio))
         _add_bytes(tar, f"{pid}/doc.json", json.dumps(doc).encode())
         manifest = {"format": FORMAT_VERSION, "paper_id": pid, "title": doc.get("title", ""),
                     "audio": audio, "exported_at": time.time(),
@@ -86,13 +86,6 @@ def _add_bytes(tar: tarfile.TarFile, name: str, data: bytes):
     ti.mode = 0o644
     tar.addfile(ti, io.BytesIO(data))
 
-
-def _wav_to_mp3(wav: Path) -> bytes:
-    import soundfile as sf
-    data, sr = sf.read(wav, dtype="float32")
-    buf = io.BytesIO()
-    sf.write(buf, data, sr, format="MP3", subtype="MPEG_LAYER_III")
-    return buf.getvalue()
 
 
 def import_bundle(path: Path, force: bool = False) -> tuple[str, str]:
@@ -146,7 +139,44 @@ def import_bundle(path: Path, force: bool = False) -> tuple[str, str]:
                         raise BundleError(f"{path.name}: {key} file missing for block {b.get('id')}")
             (staged / "status.json").write_text(json.dumps(
                 {"state": "done", "stage": "done", "done": 1, "total": 1, "message": "Imported"}))
+            compact(staged)  # e.g. a WAV bundle is stored as MP3
             if dest.exists():
                 shutil.rmtree(dest)
             staged.replace(dest)
     return pid, "imported"
+
+
+def _size(d: Path) -> int:
+    return sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+
+
+def compact(d: Path) -> int:
+    """Shrink a processed paper folder in place; returns bytes saved.
+
+    Re-encodes block audio into config.AUDIO_FORMAT (MP3 by default) and deletes the page
+    renders, which only feed the layout model and are re-created if ever needed.
+    """
+    doc_f = d / "doc.json"
+    if not doc_f.exists():
+        return 0
+    before = _size(d)
+    doc = json.loads(doc_f.read_text())
+    fmt, changed = config.AUDIO_FORMAT, False
+    for b in doc.get("blocks", []):
+        rel = (b.get("audio") or "").split("?")[0]
+        src = d / rel
+        if not rel or src.suffix == f".{fmt}" or not src.exists():
+            continue
+        dst = src.with_suffix(f".{fmt}")
+        tmp = dst.with_name(dst.name + ".partial")
+        tmp.write_bytes(audio_io.convert(src, fmt))
+        tmp.replace(dst)
+        b["audio"] = f"audio/{dst.name}"
+        changed = True
+        src.unlink()
+    if changed:
+        tmp = doc_f.with_name("doc.json.partial")
+        tmp.write_text(json.dumps(doc))
+        tmp.replace(doc_f)
+    shutil.rmtree(d / "pages", ignore_errors=True)
+    return before - _size(d)

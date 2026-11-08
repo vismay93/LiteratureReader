@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import time
 import traceback
 from pathlib import Path
@@ -15,7 +16,7 @@ from pathlib import Path
 import httpx
 
 import config
-from . import doctags, layout, narrate, pdf, tts
+from . import audio, doctags, layout, narrate, pdf, tts
 from .ingest import paper_dir
 
 log = logging.getLogger("paper-reader.jobs")
@@ -90,7 +91,7 @@ async def process(pid: str, report, sem: asyncio.Semaphore | None = None):
         report(stage="render", done=0, total=n, message="Rendering pages")
         for i in range(n):
             img = d / "pages" / f"{i}.png"
-            if not img.exists():
+            if not img.exists() and not (d / "layout" / f"{i}.json").exists():
                 await asyncio.to_thread(pdf.render_page, src, i, img)
             report(done=i + 1)
 
@@ -171,13 +172,14 @@ async def process(pid: str, report, sem: asyncio.Semaphore | None = None):
                     return
                 b = blocks[i]
                 meta_f = d / "audio" / f"{b['id']}.json"
-                wav = d / "audio" / f"{b['id']}.wav"
-                if meta_f.exists() and wav.exists():
+                f = audio.existing(d / "audio", b["id"])
+                if meta_f.exists() and f:
                     meta = json.loads(meta_f.read_text())
                 else:
-                    meta = await asyncio.to_thread(tts.synthesize, b["narration"] or ".", wav)
+                    f = audio.target(d / "audio", b["id"])
+                    meta = await asyncio.to_thread(tts.synthesize, b["narration"] or ".", f)
                     meta_f.write_text(json.dumps(meta))
-                b["audio"] = f"audio/{b['id']}.wav"
+                b["audio"] = f"audio/{f.name}"
                 b["duration"] = meta["duration"]
                 b["sentences"] = meta["sentences"]
                 progress["n"] += 1
@@ -195,6 +197,8 @@ async def process(pid: str, report, sem: asyncio.Semaphore | None = None):
                "title": next((b["text"] for b in blocks if b["type"] == "title"), ""),
                "blocks": blocks}
         (d / "doc.json").write_text(json.dumps(doc))
+        # Page renders only feed the layout model, whose output is cached in layout/.
+        shutil.rmtree(d / "pages", ignore_errors=True)
 
 
 async def regenerate_block(pid: str, bid: str) -> dict:
@@ -209,10 +213,14 @@ async def regenerate_block(pid: str, bid: str) -> dict:
         res = await narrate.narrate_block(client, blocks, i, crop)
     (d / "narration" / f"{bid}.json").write_text(json.dumps(res))
     b.update(res)
-    meta = await asyncio.to_thread(tts.synthesize, b["narration"] or ".", d / "audio" / f"{bid}.wav")
+    f = audio.target(d / "audio", bid)
+    meta = await asyncio.to_thread(tts.synthesize, b["narration"] or ".", f)
     (d / "audio" / f"{bid}.json").write_text(json.dumps(meta))
+    for e in audio.EXTS:  # drop the old file if it was in another format
+        if e != f.suffix[1:]:
+            (d / "audio" / f"{bid}.{e}").unlink(missing_ok=True)
     b["duration"], b["sentences"] = meta["duration"], meta["sentences"]
-    b["audio"] = f"audio/{bid}.wav"
+    b["audio"] = f"audio/{f.name}"
     (d / "doc.json").write_text(json.dumps(doc))
     return b
 

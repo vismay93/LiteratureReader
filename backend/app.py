@@ -1,5 +1,7 @@
 """FastAPI backend. Local, single-user: binds to 127.0.0.1 only.
 
+PR_READ_ONLY=1 serves processed papers without any model servers (scripts/start.sh --read-only).
+
 Run: uv run python app.py   (or scripts/dev.sh)
 """
 from __future__ import annotations
@@ -26,7 +28,8 @@ jobs = JobManager()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    jobs.start()
+    if not config.READ_ONLY:
+        jobs.start()
     yield
 
 
@@ -45,9 +48,24 @@ def _dir(pid: str):
     return d
 
 
+READ_ONLY_MSG = ("Read-only mode: no models are loaded, so papers can't be processed here. "
+                 "Import processed papers with batch.py import, or restart with ./scripts/start.sh.")
+
+
+def _need_models():
+    if config.READ_ONLY:
+        raise HTTPException(403, READ_ONLY_MSG)
+
+
+@app.get("/api/info")
+async def info():
+    return {"read_only": config.READ_ONLY}
+
+
 @app.post("/api/papers")
 async def create_paper(file: UploadFile | None = File(None), arxiv: str | None = Form(None),
                        force: bool = Form(False)):
+    _need_models()
     try:
         if file is not None:
             data = await file.read(config.MAX_PDF_BYTES + 1)
@@ -131,6 +149,7 @@ async def get_asset(pid: str, kind: str, name: str):
 
 @app.post("/api/papers/{pid}/blocks/{bid}/regenerate")
 async def regenerate(pid: str, bid: str):
+    _need_models()
     d = _dir(pid)
     if not re.match(r"^p\d+b\d+$", bid) or not (d / "doc.json").exists():
         raise HTTPException(404, "not found")

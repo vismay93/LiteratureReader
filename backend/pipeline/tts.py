@@ -7,9 +7,9 @@ import threading
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 
 import config
+from . import audio
 
 # espeak's word-count mismatch warning fires on most sentences and is harmless.
 logging.getLogger("phonemizer").setLevel(logging.ERROR)
@@ -49,20 +49,20 @@ def _engine():
 
 
 def synthesize(text: str, out: Path, voice: str = config.KOKORO_VOICE, speed: float = 1.0) -> dict:
-    """Write a WAV; return {'duration': s, 'sentences': [{'start','end','text'}]}."""
+    """Write out (.mp3 or .wav); return {'duration': s, 'sentences': [{'start','end','text'}]}."""
     with _lock:  # onnxruntime session already uses all cores; serialize calls
         k = _engine()
         chunks, sents, t = [], [], 0.0
         sr = 24000
         gap = None
         for s in split_sentences(text):
-            audio, sr = k.create(s, voice=voice, speed=speed, lang="en-us")
+            samples, sr = k.create(s, voice=voice, speed=speed, lang="en-us")
             if gap is None:
                 gap = np.zeros(int(sr * 0.18), dtype=np.float32)
-            dur = len(audio) / sr
+            dur = len(samples) / sr
             sents.append({"start": round(t, 3), "end": round(t + dur, 3), "text": s})
-            chunks += [audio.astype(np.float32), gap]
+            chunks += [samples.astype(np.float32), gap]
             t += dur + len(gap) / sr
         wav = np.concatenate(chunks) if chunks else np.zeros(sr // 2, dtype=np.float32)
-        sf.write(out, wav, sr, subtype="PCM_16")
+        audio.write(Path(out), wav, sr)
         return {"duration": round(len(wav) / sr, 3), "sentences": sents}

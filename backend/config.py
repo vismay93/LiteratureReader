@@ -49,6 +49,16 @@ LAYOUT_LONG_SIDE = int(os.environ.get("PR_LAYOUT_LONG_SIDE", "1024"))
 CROP_DPI = 200            # DPI for figure/table/equation crops sent to the VLM
 LLM_TIMEOUT = 600.0
 
+# Read-only: serve already-processed papers with no models loaded. Upload, arXiv fetch and
+# "Regenerate this block" are turned off (scripts/start.sh --read-only sets this).
+READ_ONLY = os.environ.get("PR_READ_ONLY", "0") == "1"
+# Audio stored for each block: "mp3" (default, ~14 MB per hour) or "wav" (~170 MB per hour).
+AUDIO_FORMAT = os.environ.get("PR_AUDIO_FORMAT", "mp3")
+if AUDIO_FORMAT not in ("mp3", "wav"):
+    raise SystemExit("PR_AUDIO_FORMAT must be mp3 or wav")
+# libsndfile MP3 compression level, constant bitrate (24 kHz mono): 0.8 = 40, 0.85 = 32, 0.9 = 24 kbps.
+MP3_LEVEL = float(os.environ.get("PR_MP3_LEVEL", "0.85"))
+
 # Concurrent LLM requests; keep equal to llama-server --parallel (scripts read the same PR_NP).
 CONCURRENCY = int(os.environ.get("PR_NP", "2"))
 # onnxruntime providers for Kokoro, comma-separated. "auto" = CUDA if available, else CPU.

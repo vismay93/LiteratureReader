@@ -178,10 +178,26 @@ def cmd_import(a) -> int:
         try:
             pid, what = bundle.import_bundle(f, force=a.force)
             print(f"  {'✓' if what == 'imported' else '='} {pid} {what}  ({f.name})")
+            if a.delete:
+                f.unlink()
         except (bundle.BundleError, OSError, json.JSONDecodeError) as e:
             bad += 1
             print(f"  ✗ {f.name}: {e}")
     return 1 if bad else 0
+
+
+def cmd_compact(a) -> int:
+    saved = 0
+    for pid in a.ids or bundle.processed_ids():
+        try:
+            n = bundle.compact(ingest.paper_dir(pid))
+        except (ingest.IngestError, OSError, RuntimeError) as e:
+            print(f"  ✗ {pid}: {e}")
+            continue
+        saved += n
+        print(f"  {'✓' if n else '='} {pid}  {n / 1e6:.1f} MB saved")
+    print(f"Saved {saved / 1e6:.1f} MB in total")
+    return 0
 
 
 def cmd_list(a) -> int:
@@ -214,6 +230,11 @@ def main(argv=None) -> int:
     i = sub.add_parser("import", help="install bundles into the local library")
     i.add_argument("bundles", nargs="+", help="bundle files or directories")
     i.add_argument("--force", action="store_true", help="overwrite papers that already exist")
+    i.add_argument("--delete", action="store_true",
+                   help="delete each bundle file once it is imported (or already in the library)")
+
+    c = sub.add_parser("compact", help="shrink stored papers: audio to MP3, drop page renders")
+    c.add_argument("ids", nargs="*", help="paper ids (default: all processed)")
 
     sub.add_parser("list", help="list processed papers")
 
@@ -222,7 +243,8 @@ def main(argv=None) -> int:
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     if a.cmd == "process":
         return asyncio.run(cmd_process(a))
-    return {"export": cmd_export, "import": cmd_import, "list": cmd_list}[a.cmd](a)
+    return {"export": cmd_export, "import": cmd_import, "compact": cmd_compact,
+            "list": cmd_list}[a.cmd](a)
 
 
 if __name__ == "__main__":

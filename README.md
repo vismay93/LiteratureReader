@@ -29,7 +29,7 @@ The installer:
 4. Downloads the models (about 6.3 GB, resumable) into `models/`.
 5. Runs the backend tests and checks that every model file is present.
 
-It is safe to re-run. Use `--skip-models` to skip the download; you can fetch the models later with `./scripts/download_models.sh`.
+It is safe to re-run. Use `--skip-models` for a reader-only install: it skips the model download and doesn't need llama.cpp. You can fetch the models later with `./scripts/download_models.sh`.
 
 ## Run
 
@@ -38,6 +38,20 @@ It is safe to re-run. Use `--skip-models` to skip the download; you can fetch th
 ```
 
 This starts both llama-servers plus the backend, which also serves the UI. Ctrl-C stops everything.
+
+To only read papers you processed elsewhere (Colab, a GPU box) and imported, start without models:
+
+```bash
+./scripts/start.sh --read-only
+```
+
+| | `start.sh` | `start.sh --read-only` |
+|---|---|---|
+| Needs | The models (~6.3 GB) and llama.cpp | Nothing beyond the install |
+| RAM | ~8 GB while processing | ~150 MB |
+| Read and listen | Yes | Yes |
+| Upload, arXiv fetch | Yes | Off (the home page says so) |
+| *Regenerate this block* | Yes | Off (the button is disabled) |
 
 For development, `./scripts/dev.sh` adds a hot-reloading UI at http://127.0.0.1:5173, which proxies `/api` to the backend.
 
@@ -96,7 +110,7 @@ You can override the sizing with env vars, e.g. `PR_QWEN_QUANT=F16 PR_NP=8 ./scr
 - Inputs can be PDFs, directories (every `*.pdf` inside), arXiv IDs or URLs, or `@file.txt` (one per line, `#` comments allowed). arXiv downloads are spaced 3 s apart.
 - `--parallel N` sets how many papers are processed at once (default 2). All papers share the server's LLM slots.
 - Already-processed papers are skipped. `--force` redoes their narration and speech.
-- Each finished paper becomes a bundle in `exports/<id>.tar.gz`, with MP3 audio by default (about 5× smaller than WAV); use `--audio wav` for WAV.
+- Each finished paper becomes a bundle in `exports/<id>.tar.gz`, with MP3 audio by default; use `--audio wav` for WAV.
 - A summary is written to `data/logs/last-batch.json`. The script stops the model servers when it's done; `KEEP_SERVERS=1` leaves them running.
 - For long batches, run it inside `tmux` or `nohup` so it survives an SSH disconnect.
 
@@ -107,13 +121,15 @@ You can override the sizing with env vars, e.g. `PR_QWEN_QUANT=F16 PR_NP=8 ./scr
 ./scripts/start.sh
 ```
 
-This exports any new bundles on the remote, rsyncs them into `data/imports/` (resumable; only new bundles are copied), and imports them into your library. Imported papers appear on the home page immediately.
+This exports any new bundles on the remote, rsyncs the ones for papers you don't have yet into `data/imports/` (resumable), imports them into your library, and deletes each bundle once it's installed. Imported papers appear on the home page immediately.
 
 You can also move bundles any other way (scp, a USB drive, cloud storage) and then run:
 
 ```bash
 cd backend && uv run python batch.py import /path/to/bundles/      # or individual .tar.gz files
 ```
+
+Add `--delete` to remove each bundle file after it is imported (or found already in the library).
 
 Import validates every bundle before installing it: only expected file names are accepted, links are refused, and `source.pdf` must hash to the paper ID. A malformed or tampered bundle cannot write outside its own paper folder. Existing papers are skipped unless you pass `--force`.
 
@@ -123,7 +139,8 @@ Import validates every bundle before installing it: only expected file names are
 |---|---|
 | `batch.py process INPUTS… [--parallel N] [--export DIR] [--audio mp3\|wav] [--force]` | Process papers headlessly (the llama-servers must be running) |
 | `batch.py export [IDS…] [--out DIR] [--audio mp3\|wav]` | Bundle processed papers (default: all); bundles already up to date are skipped |
-| `batch.py import BUNDLES…` | Install bundles into the local library |
+| `batch.py import BUNDLES… [--delete] [--force]` | Install bundles into the local library; `--delete` removes each bundle afterwards |
+| `batch.py compact [IDS…]` | Shrink stored papers (default: all): WAV audio to MP3, delete page renders |
 | `batch.py list` | List processed papers and their audio length |
 
 On the Mac you can also queue a batch overnight: `./scripts/start_llama.sh && cd backend && uv run python batch.py process ~/papers/`.
@@ -225,6 +242,9 @@ Set these environment variables before `./scripts/start.sh` (see `backend/config
 | Variable | Default | Purpose |
 |---|---|---|
 | `PR_VOICE` | `af_heart` | Kokoro voice, e.g. `am_michael`, `bf_emma`, `bm_george` |
+| `PR_READ_ONLY` | `0` | `1` serves processed papers with no models (`start.sh --read-only` sets it) |
+| `PR_AUDIO_FORMAT` | `mp3` | Stored audio: `mp3` or `wav` |
+| `PR_MP3_LEVEL` | `0.85` | MP3 constant bitrate: `0.8` ≈ 40, `0.85` ≈ 32, `0.9` ≈ 24 kbps |
 | `PR_LAYOUT_MODEL` | `docling` | `dots` for dots.ocr (vLLM), or `qwen` to use the narration VLM for layout |
 | `PR_PORT` | `8000` | Backend port |
 | `PR_MAX_PDF_MB` | `60` | Upload size limit |
@@ -244,6 +264,16 @@ Set these environment variables before `./scripts/start.sh` (see `backend/config
 
 To tune narration style, edit `backend/pipeline/prompts.py` (visuals, and text when `PR_REWRITE_TEXT=1`) or `clean_text` in `backend/pipeline/narrate.py` (text by default), then use *Regenerate this block*. Changing `PR_REWRITE_TEXT` re-narrates only the affected text blocks the next time a paper is processed. To reprocess a whole paper, delete `data/papers/<id>/narration` and `data/papers/<id>/audio` and upload the paper again.
 
+## Storage
+
+Speech is stored as constant-bitrate MP3 (about 32 kbps, about 14 MB per hour of narration, against about 170 MB as WAV). Constant bitrate keeps seeking to a sentence exact. Page renders are deleted once a paper is done, since the layout result is cached. Imported WAV bundles are converted to MP3 on import.
+
+Each paper keeps its PDF, its audio, the figure crops, and small JSON caches. To shrink papers processed before this change, run:
+
+```bash
+cd backend && uv run python batch.py compact
+```
+
 ## How it works
 
 ```
@@ -253,7 +283,7 @@ PDF ─▶ render pages ─▶ granite-docling (DocTags: typed boxes in reading 
     ─▶ crop figures/tables/equations at 200 dpi
     ─▶ text: citations/URLs stripped by rules (or a Qwen3-VL rewrite with PR_REWRITE_TEXT=1)
     ─▶ Qwen3-VL: explanations of visuals from crop + caption + referring paragraph
-    ─▶ Kokoro: one WAV per block, synthesized per sentence for exact sentence timings
+    ─▶ Kokoro: one MP3 per block, synthesized per sentence for exact sentence timings
     ─▶ doc.json ─▶ browser (pdf.js + highlight overlay + audio queue)
 ```
 

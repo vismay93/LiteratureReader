@@ -40,6 +40,9 @@ export interface Status {
 
 export interface PaperSummary { paper_id: string; title: string; status: Status }
 
+/** Server capabilities. read_only: no models are loaded, so upload and regenerate are off. */
+export interface Info { read_only: boolean }
+
 async function json<T>(r: Response): Promise<T> {
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`;
@@ -49,7 +52,11 @@ async function json<T>(r: Response): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+let infoP: Promise<Info> | undefined;
+
 export const api = {
+  /** Fetched once per page load; an older backend without /api/info counts as full mode. */
+  info: () => (infoP ??= fetch("api/info").then((r) => json<Info>(r)).catch(() => ({ read_only: false }))),
   list: () => fetch("api/papers").then((r) => json<PaperSummary[]>(r)),
   upload: (file: File) => {
     const f = new FormData();
