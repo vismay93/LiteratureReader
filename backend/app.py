@@ -142,8 +142,15 @@ async def regenerate(pid: str, bid: str):
 
 # Serve the built frontend (web/dist) if present.
 _dist = config.ROOT / "web" / "dist"
-if _dist.exists():
+if (_dist / "index.html").exists():
     app.mount("/", StaticFiles(directory=_dist, html=True), name="web")
+else:
+    from fastapi.responses import HTMLResponse
+
+    @app.get("/", response_class=HTMLResponse)
+    async def _no_ui():
+        return HTMLResponse("<h1>Paper Reader: the web UI isn't built</h1><p>Run <code>bash scripts/build_web.sh</code> "
+                            "(or re-run the install step), then restart the backend.</p>", status_code=503)
 
 
 if __name__ == "__main__":

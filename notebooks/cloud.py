@@ -141,6 +141,17 @@ def _gpu() -> tuple[str, int, float]:
     return name, int(mem), float(cc)
 
 
+def _local_status(port: int) -> int | None:
+    """HTTP status of the UI's index page on 127.0.0.1 (None if nothing answers)."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=3) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except OSError:
+        return None
+
+
 def _healthy(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=2) as r:
@@ -901,6 +912,10 @@ def start(port: int = 8000, data_dir: str | None = None, extra_hosts: list[str] 
     if voice:
         env["PR_VOICE"] = voice
 
+    if not (ROOT / "web" / "dist" / "index.html").exists():
+        print("Web UI not built yet; building it now")
+        _sh(["bash", "scripts/build_web.sh"], env={"FORCE": "1"})
+
     _stop_backend()
     LOGS.mkdir(parents=True, exist_ok=True)
     _backend = subprocess.Popen([_py(st), "app.py"], cwd=ROOT / "backend", env={**os.environ, **env},
@@ -940,6 +955,15 @@ def show(port: int | None = None, url: str | None = None):
         print(f"Paper Reader: {url}")
         print("Open it in a new tab of the browser you're using for Colab (the link is tied to your\n"
               "Google login and this runtime; it stops working when the runtime ends).")
+        code = _local_status(port)
+        if code != 200:
+            print(f"\nWARNING: the backend answers {code or 'nothing'} on 127.0.0.1:{port}/ inside the VM, so the "
+                  "link won't work.\nRun step 4 again, and see cloud.logs('backend').")
+        else:
+            print("\nIf the link shows 404 Not Found: the backend is fine (it answers 200 inside the VM), so\n"
+                  "Colab's proxy rejected your browser. That happens in Firefox and Safari, with third-party\n"
+                  "cookies blocked, or with a link from an earlier runtime. Open it in Chrome, or run\n"
+                  "'Show the link again' with EMBED_IN_NOTEBOOK ticked.")
         if in_nb:
             display(HTML(f'<p><a href="{html.escape(url)}" target="_blank" rel="noopener">'
                          f'▶ Open Paper Reader</a></p>'))

@@ -158,6 +158,7 @@ md("""
 | vLLM won't start | In step 1 set **ENGINE** to `transformers`, then run steps 1, 3 and 4 again |
 | `SafetensorError: ... header too large` | A model file was corrupt. Run step 3 again: it checks every weight file and re-downloads bad ones |
 | Out of GPU memory | In step 1 set **NARRATION_MODEL** to the 2B model or lower **MAX_BATCH**, then run steps 1, 3 and 4 again |
+| Link shows **404 Not Found** | Read the note under the link. If the backend answers 200 inside the VM, Colab's proxy rejected your browser: open the link in Chrome, or run **Show the link again** with **EMBED_IN_NOTEBOOK** ticked. Otherwise run step 4 again |
 | Link shows "Invalid host header" | Run step 4 again (it re-reads Colab's proxy address) |
 | Link stopped working | The runtime restarted or timed out. Run every step again; with **USE_DRIVE** your papers are kept |
 """)

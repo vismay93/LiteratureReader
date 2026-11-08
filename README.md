@@ -295,6 +295,7 @@ Do not expose these ports beyond localhost; there is no authentication. To use i
 | Cloud: vLLM fails on a T4 / older GPU | `cloud.setup(engine="transformers")` |
 | Cloud: `setup(engine="sglang")` says CUDA 13 / glibc is required | This machine can't run SGLang's prebuilt wheels; use the default `engine="vllm"` |
 | Cloud (llama.cpp engine): `no kernel image is available` | The prebuilt binary lacks kernels for your GPU; `cloud.setup(engine="llama.cpp", from_source=True)` |
+| Colab: UI link shows 404 Not Found | Read the note under the link. If the backend answers 200 inside the VM, Colab's proxy rejected the browser (Firefox, Safari, blocked third-party cookies, or a link from an earlier runtime): use Chrome, or **Show the link again** with **EMBED_IN_NOTEBOOK** |
 | Cloud: UI link shows "Invalid host header" | Your proxy uses another hostname: `cloud.start(extra_hosts=["that.host.name"])` |
 | SageMaker: link 404s | The Jupyter proxy needs the trailing slash: `…/proxy/8000/` |
 
