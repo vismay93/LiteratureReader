@@ -1,0 +1,14 @@
+# Backend dependencies, installed into the notebook kernel's Python by cloud.setup().
+# Inference engines bring their own extras: vLLM goes into an isolated venv (.venv-vllm);
+# the transformers engine adds transformers + accelerate (+ torch if missing).
+huggingface_hub>=1.0
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+httpx>=0.27
+pymupdf>=1.24
+pillow>=10
+soundfile>=0.12
+numpy
+kokoro-onnx>=0.4
+pytest>=8

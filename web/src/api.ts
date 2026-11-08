@@ -50,26 +50,38 @@ async function json<T>(r: Response): Promise<T> {
 }
 
 export const api = {
-  list: () => fetch("/api/papers").then((r) => json<PaperSummary[]>(r)),
+  list: () => fetch("api/papers").then((r) => json<PaperSummary[]>(r)),
   upload: (file: File) => {
     const f = new FormData();
     f.append("file", file);
-    return fetch("/api/papers", { method: "POST", body: f }).then((r) => json<{ paper_id: string }>(r));
+    return fetch("api/papers", { method: "POST", body: f }).then((r) => json<{ paper_id: string }>(r));
   },
   arxiv: (ref: string) => {
     const f = new FormData();
     f.append("arxiv", ref);
-    return fetch("/api/papers", { method: "POST", body: f }).then((r) => json<{ paper_id: string }>(r));
+    return fetch("api/papers", { method: "POST", body: f }).then((r) => json<{ paper_id: string }>(r));
   },
-  doc: (id: string) => fetch(`/api/papers/${id}`).then((r) => json<Doc>(r)),
-  status: (id: string) => fetch(`/api/papers/${id}/status`).then((r) => json<Status>(r)),
+  doc: (id: string) => fetch(`api/papers/${id}`).then((r) => json<Doc>(r)),
+  status: (id: string) => fetch(`api/papers/${id}/status`).then((r) => json<Status>(r)),
   regenerate: (id: string, bid: string) =>
-    fetch(`/api/papers/${id}/blocks/${bid}/regenerate`, { method: "POST" }).then((r) => json<Block>(r)),
-  pdfUrl: (id: string) => `/api/papers/${id}/pdf`,
-  assetUrl: (id: string, rel: string) => `/api/papers/${id}/${rel}`,
-  events: (id: string, onStatus: (s: Status) => void): EventSource => {
-    const es = new EventSource(`/api/papers/${id}/events`);
+    fetch(`api/papers/${id}/blocks/${bid}/regenerate`, { method: "POST" }).then((r) => json<Block>(r)),
+  pdfUrl: (id: string) => `api/papers/${id}/pdf`,
+  assetUrl: (id: string, rel: string) => `api/papers/${id}/${rel}`,
+  /** Live job status via SSE, falling back to polling if a proxy buffers or blocks the stream. */
+  events: (id: string, onStatus: (s: Status) => void): { close: () => void } => {
+    let closed = false;
+    let timer = 0;
+    const es = new EventSource(`api/papers/${id}/events`);
+    const poll = async () => {
+      if (closed) return;
+      try { onStatus(await api.status(id)); } catch { /* transient */ }
+      if (!closed) timer = window.setTimeout(poll, 2000);
+    };
     es.onmessage = (e) => onStatus(JSON.parse(e.data));
-    return es;
+    es.onerror = () => { es.close(); if (!timer) void poll(); };
+    // Proxies that buffer SSE never deliver a first event; poll alongside after a short wait.
+    const watchdog = window.setTimeout(() => { if (!timer) void poll(); }, 5000);
+    es.addEventListener("message", () => clearTimeout(watchdog), { once: true });
+    return { close: () => { closed = true; es.close(); clearTimeout(timer); clearTimeout(watchdog); } };
   },
 };

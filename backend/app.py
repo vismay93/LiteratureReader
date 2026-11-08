@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Paper Reader", lifespan=lifespan)
-# Reject requests whose Host isn't loopback (blocks DNS-rebinding from web pages).
+# Reject unexpected Host headers (blocks DNS-rebinding from web pages). The bind stays loopback.
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 
 
